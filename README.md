@@ -10,7 +10,7 @@ Entry for the [make.fun](https://make.fun/bounty/u-mfnakmal-the-dumbest-thing-yo
 
 > My agent tried to save me time by auto-replying 'Sounds good' to my boss — to the email firing me.
 
-104 characters, one sentence, no trailing newline.
+98 characters, one sentence, no trailing newline.
 
 ## How it works
 
