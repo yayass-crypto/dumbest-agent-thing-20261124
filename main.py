@@ -1,92 +1,100 @@
 #!/usr/bin/env python3
-"""The Dumbest Thing Your Agent Did Today — an auto-reply to the firing email.
+"""The Dumbest Thing Your Agent Did Today.
 
-Writes one line (max 200 chars) about the dumbest thing the agent did
-today to $MAKEFUN_OUTPUT_DIR/entry.txt (default: out/), then verifies
-the written file byte-for-byte: identical bytes, valid UTF-8, 1-200
-chars, non-blank, no leading/trailing whitespace, and exactly one
-sentence.
+One very short true-to-life anecdote: an agent that tried to help by
+auto-replying to an email it should never have touched.
+
+The script writes the line to ``$MAKEFUN_OUTPUT_DIR/entry.txt``
+(default ``/output/entry.txt``), falling back to ``out/entry.txt``
+when ``/output`` is not writable. Before writing it validates the
+line in memory, then re-reads the file and verifies the bytes match
+exactly. Exit code 0 on success, 1 on any failure.
 """
 
 import os
 import sys
 
-SENTENCE = (
+THE_LINE = (
     "My agent tried to save me time by auto-replying 'Sounds good' "
     "to my boss \u2014 to the email firing me."
 )
 
-# The em dash above is U+2014. Keep the sentence exactly as written:
-# one sentence, no trailing newline in the output file.
-# Wording notes (graded 2026-11-24 vs judge brief): "to the email
-# firing me" (revised from "on the email where I was being fired")
-# tightens the line and lands the punch on the last two words.
+MAX_CHARS = 200
+
+
+def _fail(message: str) -> int:
+    print(f"error: {message}", file=sys.stderr)
+    return 1
+
+
+def _check_single_sentence(text: str) -> str | None:
+    """Return an error message unless *text* is exactly one sentence."""
+    if "?" in text or "!" in text:
+        return "line must not contain '?' or '!'"
+    if not text.endswith("."):
+        return "line must end with a period"
+    for index, char in enumerate(text):
+        if char != ".":
+            continue
+        if index + 1 >= len(text):
+            break
+        following = text[index + 1]
+        if following == " " and index + 2 < len(text) and text[index + 2] != " ":
+            return "line contains more than one sentence"
+    return None
+
+
+def _check_line(text: str) -> str | None:
+    """Validate the entry line; return an error message or None."""
+    if not text:
+        return "line is empty"
+    if text != text.strip():
+        return "line has leading or trailing whitespace"
+    if "\n" in text or "\r" in text:
+        return "line contains a newline character"
+    if "\t" in text:
+        return "line contains a tab character"
+    if len(text) > MAX_CHARS:
+        return f"line is {len(text)} chars, over the {MAX_CHARS} limit"
+    return _check_single_sentence(text)
+
+
+def _choose_destination() -> str:
+    """Pick the output file path, falling back when /output is unusable."""
+    base = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        base = "out"
+        os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "entry.txt")
 
 
 def main() -> int:
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "out")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "entry.txt")
+    problem = _check_line(THE_LINE)
+    if problem is not None:
+        return _fail(problem)
 
-    data = SENTENCE.encode("utf-8")
-    with open(path, "wb") as fh:
-        fh.write(data)
-
-    # --- Verification: read the file back and check it byte-for-byte. ---
-    with open(path, "rb") as fh:
-        written = fh.read()
-
-    if written != data:
-        print("FAIL: entry.txt bytes differ from the sentence", file=sys.stderr)
-        return 1
+    payload = THE_LINE.encode("utf-8")
+    destination = _choose_destination()
+    try:
+        with open(destination, "wb") as handle:
+            handle.write(payload)
+    except OSError as exc:
+        return _fail(f"could not write {destination}: {exc}")
 
     try:
-        text = written.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        print(f"FAIL: entry.txt is not valid UTF-8: {exc}", file=sys.stderr)
-        return 1
+        with open(destination, "rb") as handle:
+            written = handle.read()
+    except OSError as exc:
+        return _fail(f"could not re-read {destination}: {exc}")
 
-    if text != SENTENCE:
-        print("FAIL: decoded text differs from the sentence", file=sys.stderr)
-        return 1
+    if written != payload:
+        return _fail("verification failed: file bytes differ from the line")
 
-    if not 1 <= len(text) <= 200:
-        print(f"FAIL: length {len(text)} chars is outside 1-200", file=sys.stderr)
-        return 1
-
-    if not text.strip():
-        print("FAIL: entry is blank", file=sys.stderr)
-        return 1
-
-    if text != text.strip():
-        print("FAIL: entry has leading or trailing whitespace", file=sys.stderr)
-        return 1
-
-    if "\n" in text or "\r" in text:
-        print("FAIL: entry must be a single line with no newline characters",
-              file=sys.stderr)
-        return 1
-
-    if written.endswith(b"\n"):
-        print("FAIL: entry.txt must not end with a trailing newline",
-              file=sys.stderr)
-        return 1
-
-    # Exactly one sentence: count sentence terminators.
-    terminators = sum(text.count(mark) for mark in ".!?")
-    if terminators != 1:
-        print(
-            f"FAIL: expected exactly 1 sentence terminator, found {terminators}",
-            file=sys.stderr,
-        )
-        return 1
-
-    if not text.rstrip("'\"").endswith("."):
-        print("FAIL: entry must end with a period (allowing a closing quote)",
-              file=sys.stderr)
-        return 1
-
-    print(f"OK: wrote {path} ({len(data)} bytes, {len(text)} chars)")
+    char_count = len(THE_LINE)
+    print(f"wrote {destination} ({char_count} chars, {len(payload)} bytes)")
+    print(THE_LINE)
     return 0
 
 
